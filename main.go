@@ -1,52 +1,37 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
-
-	_ "github.com/lib/pq" // Postgres driver (blank identifier to avoid error
-)
-
-var (
-	db    *sql.DB
-	dbErr error
+	"github.com/MelihEmreGuler/go-psql-redis-cities/database"
+	"github.com/MelihEmreGuler/go-psql-redis-cities/repository"
+	"github.com/MelihEmreGuler/go-psql-redis-cities/routes"
+	"github.com/gorilla/mux"
+	_ "github.com/lib/pq" // Postgres driver (blank identifier to avoid error)
+	"net/http"
 )
 
 func main() {
-	// docker run -it -d -p 5432:5432 --name cities-postgre -e POSTGRES_PASSWORD=cities-pass -d postgres:alpine3.14
+	//Connect to database
+	database.Connect()
 
-	// Database connection parameters
-	host := "localhost"
-	port := "5432"
-	user := "postgres"
-	password := "cities-pass"
-	dbname := "godb"
+	// Create a new repository (singleton pattern) (only one instance of this struct)
+	repository.NewRepo(database.DB)
 
-	// Connect to database
-	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
+	// Create a new router
+	r := mux.NewRouter()
 
-	db, dbErr = sql.Open("postgres", psqlInfo)
-	if dbErr != nil {
-		panic(dbErr)
-	}
+	// Register handlers
+	routes.RegisterHandlers(r)
 
-	insertCity()
-}
+	// goroutine to run http server
+	go func() {
+		err := http.ListenAndServe(":8080", r)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}()
 
-/*
-	Create -> Insert
-	Read   -> Select
-	Update -> Update
-	Delete -> Delete
-*/
+	// main goroutine will wait here
+	<-make(chan struct{})
 
-// Insert city to database table cities (name, code)
-func insertCity() {
-	r, err := db.Exec("insert into cities (name, code) values ('istanbul', 34)") // Exec returns sql.Result
-	if err != nil {
-		fmt.Println(err)
-		return
-	} else {
-		fmt.Println(r.RowsAffected()) // Returns number of rows affected by the query
-	}
 }
