@@ -34,7 +34,14 @@ func (repo cityRepo) Insert(city entity.City) {
 		fmt.Println(err)
 		return
 	} else {
-		fmt.Println(r.RowsAffected()) // Returns number of rows affected by the query
+		rowsAffected, err := r.RowsAffected()
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		if rowsAffected == 1 {
+			fmt.Println(city.Name + " inserted to database")
+		}
 	}
 }
 
@@ -65,7 +72,6 @@ func (repo cityRepo) List() []entity.City {
 
 // GetById get city from database table cities
 func (repo cityRepo) GetById(id int) *entity.City {
-	//careful, this is a vulnerability (SQL injection)
 	var city entity.City
 
 	formattedSql := fmt.Sprintf("select id, name, code from cities where id = %d", id)
@@ -95,5 +101,63 @@ func (repo cityRepo) GetByName(name string) *entity.City {
 			return &city
 		}
 	}
+}
 
+// Update city in database table cities
+func (repo cityRepo) Update(city entity.City) *entity.City {
+	stmt, err := repo.db.Prepare("update cities set name = $1, code = $2 where id = $3")
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	} else {
+		r, err := stmt.Exec(city.Name, city.Code, city.Id)
+		if err != nil {
+			fmt.Println(err)
+			return nil
+		} else {
+			rowsAffected, err := r.RowsAffected()
+			if err != nil {
+				fmt.Println(err)
+				return nil
+			}
+			if rowsAffected != 1 {
+				fmt.Println("No city updated in database")
+				return nil
+			} else {
+				fmt.Println(city.Name + " updated in database")
+				return &city
+			}
+		}
+	}
+}
+
+// Delete city from database table cities
+func (repo cityRepo) Delete(city entity.City) {
+	// We need to print city name before deleting it from database
+	cityName := repo.GetById(city.Id).Name
+
+	stmt, err := repo.db.Prepare("delete from cities where id = $1")
+	if err != nil {
+		fmt.Println(err)
+		return
+	} else {
+		r, err := stmt.Exec(city.Id)
+		if err != nil {
+			fmt.Println(err)
+			return
+		} else {
+			rowsAffected, err := r.RowsAffected()
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			if rowsAffected != 1 {
+				fmt.Println("There is something wrong, no city deleted from database")
+				return
+			} else {
+				fmt.Println(cityName, "deleted from database")
+				return
+			}
+		}
+	}
 }
