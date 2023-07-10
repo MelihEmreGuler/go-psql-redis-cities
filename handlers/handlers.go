@@ -3,12 +3,20 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/MelihEmreGuler/go-psql-redis-cities/brokers"
+	"github.com/MelihEmreGuler/go-psql-redis-cities/cache"
 	"github.com/MelihEmreGuler/go-psql-redis-cities/entity"
 	"github.com/MelihEmreGuler/go-psql-redis-cities/repository"
 	"io"
 	"net/http"
 	"strconv"
 )
+
+// rabbitmq broker instance for publish
+var rabbitmq = brokers.NewRabbitMQ()
+
+// Create a new redis client
+var redisCache = cache.NewRedis()
 
 // GetCity returns all cities
 func GetCity(writer http.ResponseWriter, request *http.Request) {
@@ -33,8 +41,7 @@ func GetCity(writer http.ResponseWriter, request *http.Request) {
 		cityBytes, _ := json.Marshal(city)
 		writer.Write(cityBytes)
 		return
-	}
-	if getByName == true {
+	} else if getByName == true {
 		cityName := request.URL.Query().Get("name")
 		city := repository.CityRepo.GetByName(cityName)
 		if city == nil {
@@ -47,15 +54,36 @@ func GetCity(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	// Get city list from database
-	cityList := repository.CityRepo.List()
+	//if the request is not for a specific city, we will write all cities
 
-	// Encode cityList to json and write to response writer
-	err := json.NewEncoder(writer).Encode(cityList)
-	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+	// Get city list from redis cache
+	cityCache := redisCache.Get()
+	if cityCache != nil {
+		fmt.Println("City list fetched from redis cache")
+		writer.Write(cityCache)
 		return
 	}
+
+	fmt.Println("City list is not in redis cache")
+
+	// Get city list from database
+	cityList := repository.CityRepo.List()
+	cityListBytes, _ := json.Marshal(cityList)
+
+	go func(data []byte) {
+		fmt.Println("City is caching to redis cache")
+
+		// Set city list to redis cache
+		redisCache.Put(cityListBytes)
+
+		// Publish message to rabbitmq
+		rabbitmq.Publish([]byte("City list fetched"))
+	}(cityListBytes)
+
+	// Write response header with status code 200 (OK)
+	writer.Write(cityListBytes)
+	writer.WriteHeader(http.StatusOK)
+
 }
 
 // PostCity inserts a new city
@@ -78,6 +106,9 @@ func PostCity(writer http.ResponseWriter, request *http.Request) {
 
 	// Insert city to database
 	repository.CityRepo.Insert(city)
+
+	// Publish message to rabbitmq
+	rabbitmq.Publish([]byte("City created with name: " + city.Name))
 
 	// Write response header with status code 201 (Created)
 	writer.WriteHeader(http.StatusCreated)
